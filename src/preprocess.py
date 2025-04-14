@@ -1,72 +1,74 @@
 # RNN_Summarization_Project/src/preprocess.py
 
 """
-Step 2: 数据预处理模块
+Step 2:文本摘要任务预处理脚本：
+1. 加载小样本 JSON 数据（cnn_dm_sample.json）
+2. 构建词汇表（vocab）
+3. 文本编码为索引序列
+4. 构造 PyTorch Dataset 用于训练
 
-功能：
-1. 加载 `cnn_dm_sample.json` 样本
-2. 分词（简单空格分词）
-3. 构建词表（限制大小，如 5000）
-4. 将文本转换为索引序列
-5. 提供 Dataset 类供训练使用
-
-运行前请确保 `extract_small_sample.py` 已成功运行。
+使用方式：
+    from preprocess import TextSummaryDataset, build_vocab, encode_text
 """
 
 import json
-import os
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from collections import Counter
 
-SPECIAL_TOKENS = ["<PAD>", "<UNK>", "<SOS>", "<EOS>"]
+SPECIAL_TOKENS = {
+    "<PAD>": 0,
+    "<UNK>": 1,
+    "<SOS>": 2,
+    "<EOS>": 3
+}
+
+def load_data(json_path):
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data
+
+def build_vocab(data, max_size=5000):
+    counter = Counter()
+    for item in data:
+        tokens = item["article"].split()
+        counter.update(tokens)
+    
+    most_common = counter.most_common(max_size - 4)  # 预留4个特殊符号
+    vocab = {
+        "<PAD>": 0,
+        "<UNK>": 1,
+        "<SOS>": 2,
+        "<EOS>": 3
+    }
+    for i, (word, _) in enumerate(most_common, start=4):
+        vocab[word] = i
+    return vocab
+
+def encode_text(text, vocab, max_len=512):
+    tokens = text.lower().split()
+    indices = [vocab.get("<SOS>", 2)]
+    for token in tokens:
+        indices.append(vocab.get(token, vocab.get("<UNK>", 1)))
+        if len(indices) >= max_len - 1:
+            break
+    indices.append(vocab.get("<EOS>", 3))
+    return indices
+
+def pad_sequence(seq, max_len, pad_idx=0):
+    return seq + [pad_idx] * (max_len - len(seq)) if len(seq) < max_len else seq[:max_len]
 
 class TextSummaryDataset(Dataset):
-    def __init__(self, json_path, vocab_size=5000, max_len=100):
-        with open(json_path, 'r', encoding='utf-8') as f:
-            self.data = json.load(f)
-
+    def __init__(self, samples, vocab, max_len=512):
+        self.samples = samples
+        self.vocab = vocab
         self.max_len = max_len
-        self.vocab = self.build_vocab(self.data, vocab_size)
-        self.vocab_size = len(self.vocab)
-        self.pad_idx = self.vocab["<PAD>"]
-
-    def build_vocab(self, data, vocab_size):
-        counter = Counter()
-        for item in data:
-            counter.update(item['article'].split())
-            counter.update(item['summary'].split())
-
-        most_common = counter.most_common(vocab_size - len(SPECIAL_TOKENS))
-        vocab = {token: idx for idx, token in enumerate(SPECIAL_TOKENS)}
-        for idx, (word, _) in enumerate(most_common, len(SPECIAL_TOKENS)):
-            vocab[word] = idx
-        return vocab
-
-    def encode(self, text):
-        tokens = text.split()
-        indices = [self.vocab.get(w, self.vocab['<UNK>']) for w in tokens]
-        indices = [self.vocab['<SOS>']] + indices + [self.vocab['<EOS>']]
-        if len(indices) < self.max_len:
-            indices += [self.vocab['<PAD>']] * (self.max_len - len(indices))
-        else:
-            indices = indices[:self.max_len]
-        return torch.tensor(indices)
-
-    def __getitem__(self, idx):
-        item = self.data[idx]
-        src = self.encode(item['article'])
-        tgt = self.encode(item['summary'])
-        return src, tgt
 
     def __len__(self):
-        return len(self.data)
+        return len(self.samples)
 
-# 示例用法
-if __name__ == "__main__":
-    dataset = TextSummaryDataset("../data/cnn_dm_sample.json")
-    print(f"样本数: {len(dataset)}")
-    print(f"词表大小: {dataset.vocab_size}")
-    print("示例数据 (前5个词索引):")
-    print("Article:", dataset[0][0][:5])
-    print("Summary:", dataset[0][1][:5])
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        src = encode_text(sample["article"], self.vocab, self.max_len)
+        trg = encode_text(sample["summary"], self.vocab, self.max_len)
+        return torch.tensor(pad_sequence(src, self.max_len)), torch.tensor(pad_sequence(trg, self.max_len))
