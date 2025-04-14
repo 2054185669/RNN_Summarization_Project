@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 
 import os
 import json
+import pickle  # [新增] 用于保存词表
 from preprocess import TextSummaryDataset, build_vocab, encode_text
 from model import Encoder, Decoder, Seq2Seq
 
@@ -26,7 +27,7 @@ BATCH_SIZE = 32
 EMB_DIM = 256
 HIDDEN_DIM = 512
 NUM_LAYERS = 1
-EPOCHS = 10
+EPOCHS = 30
 MAX_LEN = 128
 
 # 设备配置
@@ -38,6 +39,7 @@ with open("../data/cnn_dm_sample.json", "r", encoding="utf-8") as f:
 
 # 构建词表和编码数据
 vocab = build_vocab(raw_data, max_size=5000)
+vocab_inv = {idx: word for word, idx in vocab.items()}  # [新增] 创建反向词表
 dataset = TextSummaryDataset(raw_data, vocab, max_len=MAX_LEN)
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
@@ -66,7 +68,23 @@ for epoch in range(1, EPOCHS + 1):
 
     print(f"Epoch {epoch}: Loss = {total_loss / len(dataloader):.4f}")
 
-# 保存模型
+# 保存模型和词表
 os.makedirs("../models", exist_ok=True)
+os.makedirs("../vocab", exist_ok=True)  # 创建vocab目录
+
 torch.save(model.state_dict(), "../models/rnn_summarizer.pth")
 print("[INFO] 模型保存到 ../models/rnn_summarizer.pth")
+
+# 保存词表
+with open("../vocab/vocab.pkl", "wb") as f:
+    pickle.dump({
+        'vocab': vocab,
+        'vocab_inv': vocab_inv,
+        'special_tokens': {
+            'unk': vocab['<UNK>'],
+            'sos': vocab['<SOS>'],
+            'eos': vocab['<EOS>'],
+            'pad': vocab.get('<PAD>', -1)
+        }
+    }, f)
+print("[INFO] 词表保存到 ../vocab/vocab.pkl")

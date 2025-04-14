@@ -31,19 +31,23 @@ def load_data(json_path):
 def build_vocab(data, max_size=5000):
     counter = Counter()
     for item in data:
-        tokens = item["article"].split()
-        counter.update(tokens)
-    
-    most_common = counter.most_common(max_size - 4)  # 预留4个特殊符号
+        article_tokens = item["article"].lower().split()
+        summary_tokens = item["summary"].lower().split()
+        counter.update(article_tokens)
+        counter.update(summary_tokens)
+
+    # 保留最常用的 max_size - 4 个词（预留特殊标记）
+    most_common = counter.most_common(max_size - 4)
     vocab = {
         "<PAD>": 0,
         "<UNK>": 1,
         "<SOS>": 2,
         "<EOS>": 3
     }
-    for i, (word, _) in enumerate(most_common, start=4):
-        vocab[word] = i
+    for idx, (word, _) in enumerate(most_common, start=4):
+        vocab[word] = idx
     return vocab
+
 
 def encode_text(text, vocab, max_len=512):
     tokens = text.lower().split()
